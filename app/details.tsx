@@ -81,7 +81,7 @@ export default function Details() {
 
     const favMutation = useMutation({
         mutationFn: async () => {
-            const { data } = await axios.post(RAILS_API, { name });  // ✅ directly calls Rails
+            const { data } = await axios.post(RAILS_API, { name }); 
             return data;
         },
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ["favorites"] }),

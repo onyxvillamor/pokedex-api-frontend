@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -7,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -15,6 +17,7 @@ const RAILS_API = "http://192.168.1.32:3000/favorites";
 interface Favorite {
   id: number;
   name: string;
+  note: string | null;
 }
 
 const colorsByType: Record<string, { bg: string; text: string }> = {
@@ -58,10 +61,15 @@ function capitalize(text: string) {
 function FavoriteCard({
   favorite,
   onRemove,
+  onUpdate,
 }: {
   favorite: Favorite;
   onRemove: (id: number) => void;
+  onUpdate: (id: number, note: string) => void;
 }) {
+  const [note, setNote] = useState(favorite.note ?? "");
+  const [editing, setEditing] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ["pokemonMeta", favorite.name],
     queryFn: () => fetchPokemonMeta(favorite.name),
@@ -71,29 +79,80 @@ function FavoriteCard({
 
   return (
     <View style={[styles.card, { backgroundColor: colors.bg }]}>
-      {isLoading ? (
-        <View style={styles.imagePlaceholder} />
-      ) : (
-        <Image source={{ uri: data?.image }} style={styles.image} />
-      )}
 
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardName}>{capitalize(favorite.name)}</Text>
-        {data && (
-          <View style={[styles.pill, { borderColor: colors.text }]}>
-            <Text style={[styles.pillText, { color: colors.text }]}>
-              {capitalize(data.type)}
+      {/* Top row: image + info + remove */}
+      <View style={styles.cardTop}>
+        {isLoading ? (
+          <View style={styles.imagePlaceholder} />
+        ) : (
+          <Image source={{ uri: data?.image }} style={styles.image} />
+        )}
+
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardName}>{capitalize(favorite.name)}</Text>
+          {data && (
+            <View style={[styles.pill, { borderColor: colors.text }]}>
+              <Text style={[styles.pillText, { color: colors.text }]}>
+                {capitalize(data.type)}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.5 }]}
+          onPress={() => onRemove(favorite.id)}
+        >
+          <Text style={styles.removeBtnText}>✕</Text>
+        </Pressable>
+      </View>
+
+      {/* Note section */}
+      <View style={styles.noteSection}>
+        {editing ? (
+          <>
+            <TextInput
+              style={[styles.noteInput, { borderColor: colors.text }]}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Write a note..."
+              placeholderTextColor="#aaa"
+              multiline
+            />
+            <View style={styles.noteActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.saveBtn,
+                  { backgroundColor: colors.text },
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  onUpdate(favorite.id, note);
+                  setEditing(false);
+                }}
+              >
+                <Text style={styles.saveBtnText}>Save</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => {
+                  setNote(favorite.note ?? "");
+                  setEditing(false);
+                }}
+              >
+                <Text style={[styles.cancelBtnText, { color: colors.text }]}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <Pressable onPress={() => setEditing(true)}>
+            <Text style={[styles.noteText, !note && styles.notePlaceholder]}>
+              {note ? note : "＋ Add a note..."}
             </Text>
-          </View>
+          </Pressable>
         )}
       </View>
 
-      <Pressable
-        style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.5 }]}
-        onPress={() => onRemove(favorite.id)}
-      >
-        <Text style={styles.removeBtnText}>✕</Text>
-      </Pressable>
     </View>
   );
 }
@@ -112,6 +171,13 @@ export default function FavoritesScreen() {
   const removeMutation = useMutation({
     mutationFn: async (id: number) => {
       await axios.delete(`${RAILS_API}/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["favorites"] }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, note }: { id: number; note: string }) => {
+      await axios.patch(`${RAILS_API}/${id}`, { note });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["favorites"] }),
   });
@@ -147,6 +213,7 @@ export default function FavoritesScreen() {
           key={fav.id}
           favorite={fav}
           onRemove={(id) => removeMutation.mutate(id)}
+          onUpdate={(id, note) => updateMutation.mutate({ id, note })}
         />
       ))}
     </ScrollView>
@@ -183,6 +250,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    gap: 12,
+  },
+  cardTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
@@ -221,4 +291,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   removeBtnText: { fontSize: 13, color: "#555", fontWeight: "700" },
+
+  // Note styles
+  noteSection: {
+    paddingHorizontal: 4,
+  },
+  noteText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#333",
+    lineHeight: 20,
+  },
+  notePlaceholder: {
+    color: "#aaa",
+    fontWeight: "500",
+  },
+  noteInput: {
+    borderWidth: 1.5,
+    borderRadius: 10,
+    padding: 10,
+    fontSize: 13,
+    color: "#111",
+    backgroundColor: "rgba(255,255,255,0.6)",
+    minHeight: 70,
+    textAlignVertical: "top",
+  },
+  noteActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  saveBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  saveBtnText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  cancelBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  cancelBtnText: {
+    fontWeight: "800",
+    fontSize: 13,
+  },
 });
